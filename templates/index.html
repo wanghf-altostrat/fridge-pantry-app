@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Fridge & Pantry Agent</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="/static/css/style.css">
+  <!-- Marked.js for markdown rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="brand-logo">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+            <line x1="5" y1="10" x2="19" y2="10"/>
+            <line x1="10" y1="5" x2="10" y2="7"/>
+            <line x1="10" y1="14" x2="10" y2="17"/>
+          </svg>
+        </div>
+        <div>
+          <h1>Fridge & Pantry Agent</h1>
+          <p class="brand-subtitle">AI-Powered Zero-Waste Food & Recipe Manager</p>
+        </div>
+      </div>
+
+      <!-- Stats Counters -->
+      <div class="header-stats">
+        <div class="stat-pill stat-total">
+          <span class="stat-value" id="stat-total">0</span>
+          <span class="stat-label">Total Items</span>
+        </div>
+        <div class="stat-pill stat-fridge">
+          <span class="stat-value" id="stat-fridge">0</span>
+          <span class="stat-label">Fridge 🧊</span>
+        </div>
+        <div class="stat-pill stat-pantry">
+          <span class="stat-value" id="stat-pantry">0</span>
+          <span class="stat-label">Pantry 🥫</span>
+        </div>
+        <div class="stat-pill stat-warning" id="pill-expiring">
+          <span class="stat-value" id="stat-expiring">0</span>
+          <span class="stat-label">Expiring Soon ⚠️</span>
+        </div>
+      </div>
+
+      <!-- Global Actions -->
+      <div class="header-actions">
+        <button class="btn btn-warning" id="btn-discard-expired" title="Throw out all expired foods">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+          Throw Out Expired 🗑️
+        </button>
+        <button class="btn btn-secondary" id="btn-reset">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+          </svg>
+          Reset Demo Data
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="app-body">
+      <!-- Left Panel: Inventory Management -->
+      <section class="panel inventory-panel">
+        <div class="panel-header">
+          <div class="tabs-container">
+            <button class="tab-btn active" data-tab="all">All Items</button>
+            <button class="tab-btn" data-tab="fridge">Fridge 🧊</button>
+            <button class="tab-btn" data-tab="pantry">Pantry 🥫</button>
+            <button class="tab-btn tab-warning" data-tab="expiring_soon">Expiring Soon ⚠️</button>
+          </div>
+          
+          <div class="header-action-group">
+            <button class="btn btn-secondary" id="btn-toggle-shopping-list">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="9" cy="21" r="1"></circle>
+                <circle cx="20" cy="21" r="1"></circle>
+                <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+              </svg>
+              Submit Shopping List
+            </button>
+            <button class="btn btn-primary" id="btn-toggle-add">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              Add Single Item
+            </button>
+          </div>
+        </div>
+
+        <!-- Submit Shopping List Card (Hidden by default) -->
+        <div class="add-item-card hidden" id="shopping-list-card-container">
+          <div class="card-title">🛒 Submit Bulk Shopping List</div>
+          <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">
+            Paste or type your shopping list below (one item per line or comma-separated). Quantities and locations (fridge vs pantry) will automatically be parsed!
+          </p>
+          <form id="shopping-list-form">
+            <textarea id="shopping-list-text" rows="5" class="shopping-list-textarea" placeholder="e.g.&#10;2 lbs Salmon&#10;1 carton Greek Yogurt&#10;3 Apples&#10;2 boxes Pasta&#10;1 bag Brown Rice"></textarea>
+            <div class="form-actions" style="margin-top: 10px;">
+              <button type="submit" class="btn btn-success">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                  <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                </svg>
+                Import Shopping List
+              </button>
+              <button type="button" class="btn btn-ghost" id="btn-cancel-shopping-list">Cancel</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Add Item Form (Hidden by default) -->
+        <div class="add-item-card hidden" id="add-item-form-container">
+          <div class="card-title">Add New Food Item</div>
+          <form id="add-item-form" class="add-form-grid">
+            <div class="form-group">
+              <label for="item-name">Food Name</label>
+              <input type="text" id="item-name" placeholder="e.g. Avocado, Greek Yogurt" required>
+            </div>
+            <div class="form-group">
+              <label for="item-quantity">Quantity</label>
+              <input type="text" id="item-quantity" placeholder="e.g. 2 pcs, 1 carton" required>
+            </div>
+            <div class="form-group">
+              <label for="item-category">Location</label>
+              <select id="item-category">
+                <option value="fridge">Fridge 🧊</option>
+                <option value="pantry">Pantry 🥫</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="item-expiration">Expiration Date</label>
+              <input type="date" id="item-expiration" required>
+            </div>
+            <div class="form-actions span-full">
+              <button type="submit" class="btn btn-success">Save Item</button>
+              <button type="button" class="btn btn-ghost" id="btn-cancel-add">Cancel</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="search-bar-container">
+          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="inventory-search" placeholder="Search ingredients in fridge or pantry...">
+        </div>
+
+        <!-- Inventory Items Grid -->
+        <div class="inventory-grid" id="inventory-grid">
+          <!-- Dynamically populated via app.js -->
+        </div>
+      </section>
+
+      <!-- Right Panel: AI Agent & Recipe Assistant -->
+      <section class="panel agent-panel">
+        <div class="agent-panel-header">
+          <div class="agent-status-badge">
+            <span class="status-dot pulsing"></span>
+            <div>
+              <div class="agent-title">ReAct Pantry Assistant</div>
+              <div class="agent-subtitle">Automated food tracking & zero-waste cooking agent</div>
+            </div>
+          </div>
+          <button class="btn btn-ghost btn-sm" id="btn-clear-chat">Clear Chat</button>
+        </div>
+
+        <!-- Quick Action Chips -->
+        <div class="quick-actions">
+          <span class="quick-action-label">Quick Prompts:</span>
+          <button class="chip-btn" data-prompt="Check my fridge and pantry, flag expiring foods, and suggest recipes.">
+            📋 Check Inventory & Expiring
+          </button>
+          <button class="chip-btn" data-prompt="Suggest 3 quick recipes using my expiring ingredients.">
+            🍳 Zero-Waste Recipes
+          </button>
+          <button class="chip-btn" data-prompt="I bought 1 tub of Greek Yogurt and 1 bag of Fresh Berries today.">
+            🛒 Log Grocery Trip
+          </button>
+        </div>
+
+        <!-- Recipe Approval Banner (HITL interactive area) -->
+        <div class="hitl-banner hidden" id="hitl-container">
+          <div class="hitl-header">
+            <div class="hitl-title">👨‍🍳 Agent Recipe Recommendation Approval</div>
+            <div class="hitl-subtitle">Select a recipe below to confirm cooking. Ingredients will automatically be deducted!</div>
+          </div>
+          <div class="recipe-cards-grid" id="recipe-cards-container">
+            <!-- Dynamically populated recipe approval cards -->
+          </div>
+        </div>
+
+        <!-- Chat Container -->
+        <div class="chat-container" id="chat-messages">
+          <!-- Initial Welcome Message -->
+          <div class="chat-message agent-msg">
+            <div class="avatar">🤖</div>
+            <div class="message-content">
+              <p>Hello! I'm your <strong>Fridge & Pantry AI Agent</strong>.</p>
+              <p>I constantly track your ingredients, flag items expiring within 7 days, and suggest recipes to ensure zero food waste. Try running an inventory check or asking for recipe ideas!</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chat Input Form -->
+        <form class="chat-input-form" id="chat-form">
+          <input type="text" id="chat-input" placeholder="Type a message or instruction for your agent..." autocomplete="off">
+          <button type="submit" class="btn btn-primary" id="btn-send-chat">
+            <span>Send</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </form>
+      </section>
+    </main>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
