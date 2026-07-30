@@ -37,6 +37,8 @@ from google.adk.memory.memory_entry import MemoryEntry
 from google.genai import types
 from pydantic import BaseModel, Field
 
+from app.privacy import sanitize_dict, sanitize_text
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = os.path.join(
@@ -232,7 +234,11 @@ class StructuredProfileStore:
                     list(existing.values()), key=lambda x: x.lower()
                 )
             if custom_notes is not None:
-                profile.custom_notes.update(custom_notes)
+                sanitized_notes = {
+                    sanitize_text(k): sanitize_text(v)
+                    for k, v in custom_notes.items()
+                }
+                profile.custom_notes.update(sanitized_notes)
 
             with self.db_manager.get_connection() as conn:
                 self._save_profile_sync(conn, profile)
@@ -253,10 +259,13 @@ class EpisodicActivityLogger:
         details: dict[str, Any],
         impact_summary: str = "",
     ) -> EpisodicLogEntry:
+        sanitized_details = sanitize_dict(details or {})
+        sanitized_summary = sanitize_text(impact_summary or "")
+
         entry = EpisodicLogEntry(
             event_type=event_type,
-            details=details,
-            impact_summary=impact_summary,
+            details=sanitized_details,
+            impact_summary=sanitized_summary,
         )
         with self.db_manager.get_connection() as conn:
             cursor = conn.cursor()
@@ -384,6 +393,7 @@ class DatabaseMemoryService(BaseMemoryService):
                     content_text = event
 
                 if content_text:
+                    sanitized_content = sanitize_text(content_text)
                     cursor.execute(
                         """
                         INSERT INTO conversation_memories (
@@ -396,8 +406,8 @@ class DatabaseMemoryService(BaseMemoryService):
                             session_id or "",
                             timestamp,
                             str(author),
-                            content_text,
-                            json.dumps(custom_metadata or {}),
+                            sanitized_content,
+                            json.dumps(sanitize_dict(custom_metadata or {})),
                         ),
                     )
             conn.commit()

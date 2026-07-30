@@ -26,14 +26,16 @@ from app.agent import (
 )
 from app.memory import (
     AsyncMemoryPipeline,
+    DatabaseManager,
     EpisodicActivityLogger,
     StructuredProfileStore,
 )
 
 
 @pytest.mark.asyncio
-async def test_structured_profile_store():
-    store = StructuredProfileStore()
+async def test_structured_profile_store(tmp_path):
+    db_mgr = DatabaseManager(db_path=str(tmp_path / "store.db"))
+    store = StructuredProfileStore(db_manager=db_mgr)
     profile = await store.get_profile("test_user_1")
     assert profile.user_id == "test_user_1"
     assert profile.household_size == 1
@@ -51,8 +53,9 @@ async def test_structured_profile_store():
 
 
 @pytest.mark.asyncio
-async def test_episodic_activity_logger():
-    logger = EpisodicActivityLogger()
+async def test_episodic_activity_logger(tmp_path):
+    db_mgr = DatabaseManager(db_path=str(tmp_path / "logger.db"))
+    logger = EpisodicActivityLogger(db_manager=db_mgr)
     await logger.log_event_async(
         user_id="test_user_2",
         event_type="grocery_added",

@@ -28,6 +28,7 @@ from google.adk.agents import LlmAgent
 from google.genai import types
 
 from app.memory import memory_pipeline
+from app.privacy import is_receipt_metadata_line, sanitize_text
 
 
 class FoodItem(BaseModel):
@@ -292,20 +293,29 @@ def add_food_item(
         category: Storage location, either 'fridge' or 'pantry'.
         expiration_date: Date formatted as YYYY-MM-DD.
     """
+    sanitized_name = sanitize_text(name.title())
+    if not sanitized_name or is_receipt_metadata_line(name) or is_receipt_metadata_line(sanitized_name):
+        return "Cannot add item: Input contains sensitive personal data or receipt metadata rather than a valid food item."
+
+    sanitized_qty = sanitize_text(quantity)
+    sanitized_cat = (
+        category.lower()
+        if category.lower() in ["fridge", "pantry"]
+        else "fridge"
+    )
+
     inventory = tool_context.state.get("inventory", [])
     if not inventory:
         inventory = get_default_inventory()
 
     new_item = {
-        "name": name.title(),
-        "quantity": quantity,
-        "category": category.lower()
-        if category.lower() in ["fridge", "pantry"]
-        else "fridge",
+        "name": sanitized_name,
+        "quantity": sanitized_qty,
+        "category": sanitized_cat,
         "expiration_date": expiration_date,
     }
     existing_idx = next(
-        (i for i, item in enumerate(inventory) if item["name"].lower() == name.lower()),
+        (i for i, item in enumerate(inventory) if item["name"].lower() == sanitized_name.lower()),
         -1,
     )
     if existing_idx >= 0:
@@ -321,20 +331,20 @@ def add_food_item(
         user_id=user_id,
         event_type="grocery_added",
         details={
-            "name": name,
-            "quantity": quantity,
-            "category": category,
+            "name": sanitized_name,
+            "quantity": sanitized_qty,
+            "category": sanitized_cat,
             "expiration_date": expiration_date,
         },
-        impact_summary=f"Added '{name}' ({quantity}) to {category}, expiring on {expiration_date}.",
+        impact_summary=f"Added '{sanitized_name}' ({sanitized_qty}) to {sanitized_cat}, expiring on {expiration_date}.",
     )
     memory_pipeline.enqueue_update_async(
         job_type="extract_facts",
         user_id=user_id,
-        text=f"Added {name}",
+        text=f"Added {sanitized_name}",
     )
 
-    return f"Successfully added '{name}' ({quantity}) to {category} expiring on {expiration_date}."
+    return f"Successfully added '{sanitized_name}' ({sanitized_qty}) to {sanitized_cat} expiring on {expiration_date}."
 
 
 def consume_food_item(
@@ -754,7 +764,12 @@ pantry_llm_agent = LlmAgent(
     model="gemini-2.5-flash",
     instruction="""You are an intelligent Fridge & Pantry Assistant.
     You have tools to check inventory status, add food items, consume used ingredients, discard expired items, suggest zero-waste recipes, provide food storage advice, estimate expiration dates, generate custom recipes, update user profiles & dietary preferences, retrieve user profiles, query past conversation memory, and check activity history.
-    When asked about inventory, logging groceries, consuming food, throwing out expired items, storage tips, dietary preferences, past activities, or recipe ideas, invoke the appropriate tool.""",
+    When asked about inventory, logging groceries, consuming food, throwing out expired items, storage tips, dietary preferences, past activities, or recipe ideas, invoke the appropriate tool.
+
+    STRICT PRIVACY GUARDRAILS:
+    - Never request, process, display, or store personal data (such as personal names, credit card numbers, payment card details, addresses, phone numbers, email addresses, store loyalty IDs, cashier IDs, or receipt monetary totals) without explicit user approval.
+    - When processing receipts or shopping lists, filter out all payment and personal metadata and focus strictly on food items, quantities, categories, and expiration dates.
+    - Never include sensitive personal data in chat responses or memory updates, as it is unrelated to managing fridge and pantry contents.""",
     tools=[
         add_food_item,
         consume_food_item,

@@ -22,6 +22,7 @@ from google.genai import types
 
 from app.agent import app as adk_app
 from app.agent import get_default_inventory
+from app.privacy import filter_receipt_food_items, is_receipt_metadata_line, sanitize_text
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -169,11 +170,11 @@ def delete_item(item_name):
     return jsonify({"message": f"Removed '{item_name}' from inventory"})
 
 
-def parse_shopping_list_line(line: str) -> dict:
-    """Parses a raw line from a shopping list into a structured item."""
+def parse_shopping_list_line(line: str) -> dict | None:
+    """Parses a raw line from a shopping list or receipt into a structured food item, filtering out personal data and receipt metadata."""
     today = datetime.date.today()
     line_clean = line.strip().strip("-*•,")
-    if not line_clean:
+    if not line_clean or is_receipt_metadata_line(line_clean):
         return None
 
     # Determine location (fridge vs pantry) based on keywords
@@ -243,9 +244,13 @@ def parse_shopping_list_line(line: str) -> dict:
     if not name:
         name = line_clean
 
+    sanitized_name = sanitize_text(name.title())
+    if not sanitized_name or is_receipt_metadata_line(sanitized_name):
+        return None
+
     return {
-        "name": name.title(),
-        "quantity": quantity,
+        "name": sanitized_name,
+        "quantity": sanitize_text(quantity),
         "category": category,
         "expiration_date": exp_date,
     }
@@ -261,11 +266,7 @@ def bulk_add_inventory():
     added_items = []
 
     if raw_list:
-        lines = [
-            line_item
-            for line_item in raw_list.replace(",", "\n").splitlines()
-            if line_item.strip()
-        ]
+        lines = filter_receipt_food_items(raw_list)
         for line in lines:
             parsed = parse_shopping_list_line(line)
             if parsed:
@@ -414,7 +415,7 @@ def discard_expired_items():
 def agent_chat():
     global current_inventory
     data = request.json or {}
-    user_text = data.get("message", "").strip()
+    user_text = sanitize_text(data.get("message", "").strip())
 
     if not user_text:
         return jsonify({"error": "Message is required"}), 400
@@ -440,11 +441,11 @@ def agent_chat():
             if hasattr(event, "content") and event.content and event.content.parts:
                 for part in event.content.parts:
                     if part.text:
-                        agent_messages.append(part.text)
+                        agent_messages.append(sanitize_text(part.text))
                     elif part.function_call:
                         hitl_request = {
                             "name": part.function_call.name,
-                            "message": part.function_call.args.get("message"),
+                            "message": sanitize_text(part.function_call.args.get("message", "")),
                         }
 
         # Update local inventory state from session state
