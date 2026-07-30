@@ -14,11 +14,11 @@
 
 """Memory storage techniques and asynchronous update pipeline for Fridge & Pantry Agent.
 
-This module provides multi-layered memory architecture:
+This module provides multi-layered database-backed persistent memory architecture:
 1. Short-Term Working Memory (Session State via Context/ToolContext)
-2. Structured User Profile & Preferences Memory Store (Dietary restrictions, favorites, household size)
-3. Episodic Activity & Waste History Logger (Timestamped log of food events and zero-waste stats)
-4. Conversational & Event Memory Service (ADK BaseMemoryService integration for semantic/keyword search)
+2. Structured User Profile & Preferences Memory Store (SQLite user_profiles table)
+3. Episodic Activity & Waste History Logger (SQLite episodic_logs table)
+4. Conversational & Event Memory Service (ADK BaseMemoryService SQLite database implementation)
 5. Asynchronous Non-Blocking Update Pipeline (Background asyncio queues & tasks for fact extraction)
 """
 
@@ -26,13 +26,22 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 import logging
+import os
+import sqlite3
 from typing import Any
 
-from google.adk.memory.in_memory_memory_service import InMemoryMemoryService
+from google.adk.memory.base_memory_service import BaseMemoryService, SearchMemoryResponse
+from google.adk.memory.memory_entry import MemoryEntry
+from google.genai import types
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_DB_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "memory.db"
+)
 
 
 class UserProfile(BaseModel):
@@ -61,17 +70,111 @@ class EpisodicLogEntry(BaseModel):
     impact_summary: str = ""
 
 
-class StructuredProfileStore:
-    """Thread-safe persistent store for user profiles (Structured Memory Technique)."""
+class DatabaseManager:
+    """SQLite Database Manager for persisting user profiles, episodic activity logs, and conversational memory."""
 
-    def __init__(self):
-        self._profiles: dict[str, UserProfile] = {}
+    def __init__(self, db_path: str = DEFAULT_DB_PATH):
+        self.db_path = db_path
+        self._init_db()
+
+    def get_connection(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _init_db(self) -> None:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_profiles (
+                    user_id TEXT PRIMARY KEY,
+                    dietary_restrictions TEXT,
+                    favorite_ingredients TEXT,
+                    disliked_ingredients TEXT,
+                    household_size INTEGER,
+                    sustainability_goals TEXT,
+                    favorite_recipes TEXT,
+                    custom_notes TEXT
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS episodic_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT,
+                    timestamp TEXT,
+                    event_type TEXT,
+                    details TEXT,
+                    impact_summary TEXT
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS conversation_memories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    app_name TEXT,
+                    user_id TEXT,
+                    session_id TEXT,
+                    timestamp TEXT,
+                    author TEXT,
+                    content_text TEXT,
+                    custom_metadata TEXT
+                )
+            """)
+            conn.commit()
+
+
+class StructuredProfileStore:
+    """Thread-safe database-backed persistent store for user profiles."""
+
+    def __init__(self, db_manager: DatabaseManager | None = None):
+        self.db_manager = db_manager or DatabaseManager()
         self._lock = asyncio.Lock()
 
     def get_profile_sync(self, user_id: str = "default_user") -> UserProfile:
-        if user_id not in self._profiles:
-            self._profiles[user_id] = UserProfile(user_id=user_id)
-        return self._profiles[user_id]
+        with self.db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM user_profiles WHERE user_id = ?", (user_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return UserProfile(
+                    user_id=row["user_id"],
+                    dietary_restrictions=json.loads(row["dietary_restrictions"] or "[]"),
+                    favorite_ingredients=json.loads(row["favorite_ingredients"] or "[]"),
+                    disliked_ingredients=json.loads(row["disliked_ingredients"] or "[]"),
+                    household_size=row["household_size"] or 1,
+                    sustainability_goals=json.loads(
+                        row["sustainability_goals"] or '["zero-waste", "reduce-food-spoilage"]'
+                    ),
+                    favorite_recipes=json.loads(row["favorite_recipes"] or "[]"),
+                    custom_notes=json.loads(row["custom_notes"] or "{}"),
+                )
+            else:
+                profile = UserProfile(user_id=user_id)
+                self._save_profile_sync(conn, profile)
+                return profile
+
+    def _save_profile_sync(self, conn: sqlite3.Connection, profile: UserProfile) -> None:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO user_profiles (
+                user_id, dietary_restrictions, favorite_ingredients, disliked_ingredients,
+                household_size, sustainability_goals, favorite_recipes, custom_notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                profile.user_id,
+                json.dumps(profile.dietary_restrictions),
+                json.dumps(profile.favorite_ingredients),
+                json.dumps(profile.disliked_ingredients),
+                profile.household_size,
+                json.dumps(profile.sustainability_goals),
+                json.dumps(profile.favorite_recipes),
+                json.dumps(profile.custom_notes),
+            ),
+        )
+        conn.commit()
 
     async def get_profile(self, user_id: str = "default_user") -> UserProfile:
         async with self._lock:
@@ -87,7 +190,7 @@ class StructuredProfileStore:
         favorite_recipes: list[str] | None = None,
         custom_notes: dict[str, str] | None = None,
     ) -> UserProfile:
-        """Asynchronously update structured user profile attributes."""
+        """Asynchronously update structured user profile attributes in SQLite database."""
         async with self._lock:
             profile = self.get_profile_sync(user_id)
             if dietary_restrictions is not None:
@@ -130,15 +233,17 @@ class StructuredProfileStore:
                 )
             if custom_notes is not None:
                 profile.custom_notes.update(custom_notes)
-            self._profiles[user_id] = profile
+
+            with self.db_manager.get_connection() as conn:
+                self._save_profile_sync(conn, profile)
             return profile
 
 
 class EpisodicActivityLogger:
-    """Timestamped episodic event memory store for tracking kitchen actions and sustainability metrics."""
+    """Database-backed episodic event memory store for tracking kitchen actions and sustainability metrics."""
 
-    def __init__(self):
-        self._logs: dict[str, list[EpisodicLogEntry]] = {}
+    def __init__(self, db_manager: DatabaseManager | None = None):
+        self.db_manager = db_manager or DatabaseManager()
         self._lock = asyncio.Lock()
 
     def log_event_sync(
@@ -153,9 +258,22 @@ class EpisodicActivityLogger:
             details=details,
             impact_summary=impact_summary,
         )
-        if user_id not in self._logs:
-            self._logs[user_id] = []
-        self._logs[user_id].append(entry)
+        with self.db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO episodic_logs (user_id, timestamp, event_type, details, impact_summary)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id,
+                    entry.timestamp,
+                    entry.event_type,
+                    json.dumps(entry.details),
+                    entry.impact_summary,
+                ),
+            )
+            conn.commit()
         return entry
 
     async def log_event_async(
@@ -175,19 +293,162 @@ class EpisodicActivityLogger:
         event_type: str | None = None,
     ) -> list[EpisodicLogEntry]:
         async with self._lock:
-            user_logs = self._logs.get(user_id, [])
-            if event_type:
-                user_logs = [e for e in user_logs if e.event_type == event_type]
-            return sorted(user_logs, key=lambda x: x.timestamp, reverse=True)[:limit]
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                if event_type:
+                    cursor.execute(
+                        """
+                        SELECT timestamp, event_type, details, impact_summary
+                        FROM episodic_logs
+                        WHERE user_id = ? AND event_type = ?
+                        ORDER BY timestamp DESC
+                        LIMIT ?
+                        """,
+                        (user_id, event_type, limit),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT timestamp, event_type, details, impact_summary
+                        FROM episodic_logs
+                        WHERE user_id = ?
+                        ORDER BY timestamp DESC
+                        LIMIT ?
+                        """,
+                        (user_id, limit),
+                    )
+                rows = cursor.fetchall()
+                return [
+                    EpisodicLogEntry(
+                        timestamp=row["timestamp"],
+                        event_type=row["event_type"],
+                        details=json.loads(row["details"] or "{}"),
+                        impact_summary=row["impact_summary"],
+                    )
+                    for row in rows
+                ]
+
+
+class DatabaseMemoryService(BaseMemoryService):
+    """Database-backed ADK BaseMemoryService implementation using SQLite."""
+
+    def __init__(self, db_manager: DatabaseManager | None = None):
+        self.db_manager = db_manager or DatabaseManager()
+
+    async def add_session_to_memory(self, session: Any) -> None:
+        """Adds all events in an ADK Session to persistent SQLite memory database."""
+        app_name = getattr(session, "app_name", "app")
+        user_id = getattr(session, "user_id", "default_user")
+        events = getattr(session, "events", [])
+        session_id = getattr(session, "id", None)
+        await self.add_events_to_memory(
+            app_name=app_name,
+            user_id=user_id,
+            events=events,
+            session_id=session_id,
+        )
+
+    async def add_events_to_memory(
+        self,
+        *,
+        app_name: str,
+        user_id: str,
+        events: list[Any],
+        session_id: str | None = None,
+        custom_metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Persists conversational events into SQLite conversation_memories table."""
+        with self.db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            for event in events:
+                timestamp = (
+                    getattr(event, "timestamp", None)
+                    or datetime.datetime.now(datetime.UTC).isoformat()
+                )
+                if isinstance(timestamp, (datetime.datetime, datetime.date)):
+                    timestamp = timestamp.isoformat()
+                else:
+                    timestamp = str(timestamp)
+                author = getattr(event, "author", "user") or "user"
+                content_text = ""
+                if hasattr(event, "content") and event.content:
+                    if hasattr(event.content, "parts") and event.content.parts:
+                        content_text = " ".join(
+                            [
+                                p.text
+                                for p in event.content.parts
+                                if getattr(p, "text", None)
+                            ]
+                        )
+                elif isinstance(event, str):
+                    content_text = event
+
+                if content_text:
+                    cursor.execute(
+                        """
+                        INSERT INTO conversation_memories (
+                            app_name, user_id, session_id, timestamp, author, content_text, custom_metadata
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            app_name,
+                            user_id,
+                            session_id or "",
+                            timestamp,
+                            str(author),
+                            content_text,
+                            json.dumps(custom_metadata or {}),
+                        ),
+                    )
+            conn.commit()
+
+    async def search_memory(
+        self,
+        *,
+        app_name: str,
+        user_id: str,
+        query: str,
+    ) -> SearchMemoryResponse:
+        """Searches persistent SQLite conversation memories for matching text entries."""
+        with self.db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, timestamp, author, content_text, custom_metadata
+                FROM conversation_memories
+                WHERE user_id = ? AND content_text LIKE ?
+                ORDER BY timestamp DESC
+                LIMIT 10
+                """,
+                (user_id, f"%{query}%"),
+            )
+            rows = cursor.fetchall()
+            memories = []
+            for row in rows:
+                content = types.Content(
+                    role=row["author"] or "user",
+                    parts=[types.Part.from_text(text=row["content_text"])],
+                )
+                memories.append(
+                    MemoryEntry(
+                        id=str(row["id"]),
+                        timestamp=row["timestamp"],
+                        author=row["author"],
+                        content=content,
+                        custom_metadata=json.loads(row["custom_metadata"] or "{}"),
+                    )
+                )
+            return SearchMemoryResponse(memories=memories)
 
 
 class AsyncMemoryPipeline:
-    """Asynchronous Memory Manager providing non-blocking updates and background task execution."""
+    """Asynchronous Memory Manager providing database-backed persistent updates and background task execution."""
 
-    def __init__(self):
-        self.profile_store = StructuredProfileStore()
-        self.episodic_logger = EpisodicActivityLogger()
-        self.adk_memory_service = InMemoryMemoryService()
+    def __init__(self, db_path: str = DEFAULT_DB_PATH):
+        self.db_manager = DatabaseManager(db_path=db_path)
+        self.profile_store = StructuredProfileStore(db_manager=self.db_manager)
+        self.episodic_logger = EpisodicActivityLogger(db_manager=self.db_manager)
+        self.adk_memory_service = DatabaseMemoryService(db_manager=self.db_manager)
         self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._bg_task: asyncio.Task | None = None
         self._bg_tasks: set[asyncio.Task] = set()
@@ -274,7 +535,6 @@ class AsyncMemoryPipeline:
             task.add_done_callback(self._bg_tasks.discard)
         except RuntimeError:
             # Fallback if no active loop: log directly synchronously
-
             if job_type == "log_event":
                 self.episodic_logger.log_event_sync(
                     user_id=user_id,

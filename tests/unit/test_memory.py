@@ -144,3 +144,35 @@ async def test_order_independence():
     assert p1.favorite_recipes == p2.favorite_recipes
     assert p1.dietary_restrictions == p2.dietary_restrictions
 
+
+@pytest.mark.asyncio
+async def test_database_persistence(tmp_path):
+    # Verify that data written to SQLite database persists when creating new store instances
+    db_file = str(tmp_path / "test_persist.db")
+    pipeline_1 = AsyncMemoryPipeline(db_path=db_file)
+
+    await pipeline_1.profile_store.update_profile(
+        user_id="persist_user",
+        dietary_restrictions=["vegan", "keto"],
+        favorite_ingredients=["tofu", "mushrooms"],
+        household_size=4,
+    )
+    await pipeline_1.episodic_logger.log_event_async(
+        user_id="persist_user",
+        event_type="grocery_added",
+        details={"item": "Tofu"},
+        impact_summary="Added Tofu to pantry",
+    )
+
+    # Initialize new pipeline reading from the same SQLite DB file
+    pipeline_2 = AsyncMemoryPipeline(db_path=db_file)
+    profile_reloaded = await pipeline_2.profile_store.get_profile("persist_user")
+    logs_reloaded = await pipeline_2.episodic_logger.get_recent_logs("persist_user")
+
+    assert profile_reloaded.household_size == 4
+    assert "vegan" in profile_reloaded.dietary_restrictions
+    assert "Tofu" in profile_reloaded.favorite_ingredients
+    assert len(logs_reloaded) == 1
+    assert logs_reloaded[0].impact_summary == "Added Tofu to pantry"
+
+
