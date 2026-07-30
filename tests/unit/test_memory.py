@@ -119,3 +119,28 @@ async def test_memory_tools():
     # Test query_user_memory
     mem_res = await query_user_memory(tool_context=tool_ctx, query="Greek Yogurt")
     assert "memory" in mem_res.lower()
+
+
+@pytest.mark.asyncio
+async def test_order_independence():
+    # Verify that updating profile lists in different order results in identical stored lists
+    store1 = StructuredProfileStore()
+    p1 = await store1.update_profile(
+        user_id="user_a",
+        favorite_ingredients=["Spinach", "Avocado", "Garlic"],
+        favorite_recipes=["Pasta Stir-Fry", "Omelette"],
+        dietary_restrictions=["vegetarian", "gluten-free"],
+    )
+
+    store2 = StructuredProfileStore()
+    p2 = await store2.update_profile(
+        user_id="user_b",
+        favorite_ingredients=["Garlic", "Spinach", "Avocado"],
+        favorite_recipes=["Omelette", "Pasta Stir-Fry"],
+        dietary_restrictions=["gluten-free", "vegetarian"],
+    )
+
+    assert p1.favorite_ingredients == p2.favorite_ingredients
+    assert p1.favorite_recipes == p2.favorite_recipes
+    assert p1.dietary_restrictions == p2.dietary_restrictions
+

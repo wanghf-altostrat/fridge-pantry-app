@@ -147,6 +147,7 @@ def add_item():
         current_inventory[existing_idx] = new_item
     else:
         current_inventory.append(new_item)
+    current_inventory = sorted(current_inventory, key=lambda x: x["name"].lower())
 
     sync_inventory_to_session()
     return jsonify(
@@ -305,6 +306,7 @@ def bulk_add_inventory():
             current_inventory.append(new_item)
         added_items.append(new_item)
 
+    current_inventory = sorted(current_inventory, key=lambda x: x["name"].lower())
     sync_inventory_to_session()
 
     enriched = [enrich_item(item) for item in current_inventory]
@@ -346,9 +348,10 @@ def consume_item():
     if not existing_item:
         return jsonify({"error": f"Item '{item_name}' not found in inventory"}), 404
 
-    current_inventory = [
-        i for i in current_inventory if i["name"].lower() != item_name.lower()
-    ]
+    current_inventory = sorted(
+        [i for i in current_inventory if i["name"].lower() != item_name.lower()],
+        key=lambda x: x["name"].lower(),
+    )
     sync_inventory_to_session()
 
     enriched = [enrich_item(item) for item in current_inventory]
@@ -366,11 +369,14 @@ def discard_expired_items():
     global current_inventory
     today_str = datetime.date.today().isoformat()
 
-    expired_items = [
-        item
-        for item in current_inventory
-        if item.get("expiration_date", "9999-12-31") <= today_str
-    ]
+    expired_items = sorted(
+        [
+            item
+            for item in current_inventory
+            if item.get("expiration_date", "9999-12-31") <= today_str
+        ],
+        key=lambda x: x["name"].lower(),
+    )
 
     if not expired_items:
         return jsonify(
@@ -382,11 +388,14 @@ def discard_expired_items():
             }
         )
 
-    current_inventory = [
-        item
-        for item in current_inventory
-        if item.get("expiration_date", "9999-12-31") > today_str
-    ]
+    current_inventory = sorted(
+        [
+            item
+            for item in current_inventory
+            if item.get("expiration_date", "9999-12-31") > today_str
+        ],
+        key=lambda x: x["name"].lower(),
+    )
 
     sync_inventory_to_session()
 
@@ -492,18 +501,20 @@ def cook_recipe():
         consumed = ["Chicken Breast"]
 
     # Deduct consumed items
-    current_inventory = [
-        item for item in current_inventory if item["name"] not in consumed
-    ]
+    consumed_set = {c.lower() for c in consumed}
+    current_inventory = sorted(
+        [item for item in current_inventory if item["name"].lower() not in consumed_set],
+        key=lambda x: x["name"].lower(),
+    )
 
     sync_inventory_to_session()
 
     enriched = [enrich_item(item) for item in current_inventory]
     return jsonify(
         {
-            "message": f"Successfully cooked {recipe_name}! Deducted: {', '.join(consumed)}",
+            "message": f"Successfully cooked {recipe_name}! Deducted: {', '.join(sorted(consumed))}",
             "recipe_name": recipe_name,
-            "consumed": consumed,
+            "consumed": sorted(consumed),
             "inventory": enriched,
         }
     )
@@ -519,37 +530,42 @@ def get_recipes():
         for item in current_inventory
         if datetime.date.fromisoformat(item["expiration_date"]) <= cutoff_date
     ]
+    expiring_set = {i.lower() for i in expiring_items}
 
     recipes = [
         {
             "id": "1",
             "name": "Chicken & Tomato Skillet",
-            "ingredients": ["Chicken Breast", "Tomatoes"],
+            "ingredients": sorted(["Chicken Breast", "Tomatoes"]),
             "category": "High Protein",
             "cook_time": "20 mins",
-            "expiring_used": [
-                i for i in expiring_items if i in ["Chicken Breast", "Tomatoes"]
-            ],
+            "expiring_used": sorted(
+                [i for i in expiring_items if i.lower() in ["chicken breast", "tomatoes"]]
+            ),
         },
         {
             "id": "2",
             "name": "Cheesy Omelette Delight",
-            "ingredients": ["Eggs", "Milk"],
+            "ingredients": sorted(["Eggs", "Milk"]),
             "category": "Breakfast / Quick",
             "cook_time": "10 mins",
-            "expiring_used": [i for i in expiring_items if i in ["Eggs", "Milk"]],
+            "expiring_used": sorted(
+                [i for i in expiring_items if i.lower() in ["eggs", "milk"]]
+            ),
         },
         {
             "id": "3",
             "name": "Vegetable Pasta Stir-Fry",
-            "ingredients": ["Spinach", "Tomatoes", "Pasta"],
+            "ingredients": sorted(["Spinach", "Tomatoes", "Pasta"]),
             "category": "Vegetarian",
             "cook_time": "15 mins",
-            "expiring_used": [
-                i for i in expiring_items if i in ["Tomatoes", "Spinach"]
-            ],
+            "expiring_used": sorted(
+                [i for i in expiring_items if i.lower() in ["tomatoes", "spinach"]]
+            ),
         },
     ]
+
+    recipes = sorted(recipes, key=lambda r: r["name"].lower())
 
     return jsonify({"recipes": recipes, "expiring_count": len(expiring_items)})
 

@@ -91,28 +91,43 @@ class StructuredProfileStore:
         async with self._lock:
             profile = self.get_profile_sync(user_id)
             if dietary_restrictions is not None:
+                existing = {d.lower(): d for d in profile.dietary_restrictions}
                 for diet in dietary_restrictions:
-                    d_clean = diet.strip().lower()
-                    if d_clean and d_clean not in [
-                        d.lower() for d in profile.dietary_restrictions
-                    ]:
-                        profile.dietary_restrictions.append(diet.strip())
+                    d_clean = diet.strip()
+                    if d_clean and d_clean.lower() not in existing:
+                        existing[d_clean.lower()] = d_clean
+                profile.dietary_restrictions = sorted(
+                    list(existing.values()), key=lambda x: x.lower()
+                )
             if favorite_ingredients is not None:
+                existing = {i.lower(): i for i in profile.favorite_ingredients}
                 for ing in favorite_ingredients:
                     i_clean = ing.strip().title()
-                    if i_clean and i_clean not in profile.favorite_ingredients:
-                        profile.favorite_ingredients.append(i_clean)
+                    if i_clean and i_clean.lower() not in existing:
+                        existing[i_clean.lower()] = i_clean
+                profile.favorite_ingredients = sorted(
+                    list(existing.values()), key=lambda x: x.lower()
+                )
             if disliked_ingredients is not None:
+                existing = {i.lower(): i for i in profile.disliked_ingredients}
                 for ing in disliked_ingredients:
                     i_clean = ing.strip().title()
-                    if i_clean and i_clean not in profile.disliked_ingredients:
-                        profile.disliked_ingredients.append(i_clean)
+                    if i_clean and i_clean.lower() not in existing:
+                        existing[i_clean.lower()] = i_clean
+                profile.disliked_ingredients = sorted(
+                    list(existing.values()), key=lambda x: x.lower()
+                )
             if household_size is not None and household_size > 0:
                 profile.household_size = household_size
             if favorite_recipes is not None:
+                existing = {r.lower(): r for r in profile.favorite_recipes}
                 for rec in favorite_recipes:
-                    if rec and rec not in profile.favorite_recipes:
-                        profile.favorite_recipes.append(rec)
+                    r_clean = rec.strip()
+                    if r_clean and r_clean.lower() not in existing:
+                        existing[r_clean.lower()] = r_clean
+                profile.favorite_recipes = sorted(
+                    list(existing.values()), key=lambda x: x.lower()
+                )
             if custom_notes is not None:
                 profile.custom_notes.update(custom_notes)
             self._profiles[user_id] = profile

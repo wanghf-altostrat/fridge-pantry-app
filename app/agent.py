@@ -39,7 +39,7 @@ class FoodItem(BaseModel):
 
 def get_default_inventory() -> List[Dict[str, Any]]:
     today = datetime.date.today()
-    return [
+    items = [
         {
             "name": "Chicken Breast",
             "quantity": "2 lbs",
@@ -89,6 +89,7 @@ def get_default_inventory() -> List[Dict[str, Any]]:
             "expiration_date": (today - datetime.timedelta(days=2)).isoformat(),
         },
     ]
+    return sorted(items, key=lambda x: x["name"].lower())
 
 
 @node(name="inventory_manager")
@@ -235,9 +236,11 @@ async def recipe_agent(ctx: Context, node_input: dict):
         consumed_items = ["Chicken Breast"]
 
     # Deduct consumed items from inventory
-    remaining_inventory = [
-        item for item in updated_inventory if item["name"] not in consumed_items
-    ]
+    consumed_set = {c.lower() for c in consumed_items}
+    remaining_inventory = sorted(
+        [item for item in updated_inventory if item["name"].lower() not in consumed_set],
+        key=lambda x: x["name"].lower(),
+    )
     ctx.state["inventory"] = remaining_inventory
 
     # Asynchronously record recipe acceptance in episodic activity logger & profile memory
@@ -309,6 +312,7 @@ def add_food_item(
         inventory[existing_idx] = new_item
     else:
         inventory.append(new_item)
+    inventory = sorted(inventory, key=lambda x: x["name"].lower())
     tool_context.state["inventory"] = inventory
 
     user_id = tool_context.user_id or "default_user"
@@ -344,9 +348,10 @@ def consume_food_item(
     """
     inventory = tool_context.state.get("inventory", [])
     initial_len = len(inventory)
-    updated_inventory = [
-        item for item in inventory if item["name"].lower() != name.lower()
-    ]
+    updated_inventory = sorted(
+        [item for item in inventory if item["name"].lower() != name.lower()],
+        key=lambda x: x["name"].lower(),
+    )
     tool_context.state["inventory"] = updated_inventory
 
     user_id = tool_context.user_id or "default_user"
@@ -368,16 +373,22 @@ def discard_expired_items(
     """Discards all expired food items (items where expiration_date <= today) from inventory."""
     today_str = datetime.date.today().isoformat()
     inventory = tool_context.state.get("inventory", [])
-    expired = [
-        item
-        for item in inventory
-        if item.get("expiration_date", "9999-12-31") <= today_str
-    ]
-    remaining = [
-        item
-        for item in inventory
-        if item.get("expiration_date", "9999-12-31") > today_str
-    ]
+    expired = sorted(
+        [
+            item
+            for item in inventory
+            if item.get("expiration_date", "9999-12-31") <= today_str
+        ],
+        key=lambda x: x["name"].lower(),
+    )
+    remaining = sorted(
+        [
+            item
+            for item in inventory
+            if item.get("expiration_date", "9999-12-31") > today_str
+        ],
+        key=lambda x: x["name"].lower(),
+    )
     tool_context.state["inventory"] = remaining
 
     user_id = tool_context.user_id or "default_user"
@@ -405,8 +416,9 @@ def check_inventory(
         inventory = get_default_inventory()
         tool_context.state["inventory"] = inventory
 
+    sorted_inventory = sorted(inventory, key=lambda x: x["name"].lower())
     items_status = []
-    for item in inventory:
+    for item in sorted_inventory:
         exp_date = datetime.date.fromisoformat(item["expiration_date"])
         days_left = (exp_date - today).days
         if days_left < 0:
@@ -437,7 +449,7 @@ def suggest_zero_waste_recipes(
         for item in inventory
         if datetime.date.fromisoformat(item["expiration_date"]) <= cutoff_date
     ]
-    expiring_names = [i["name"] for i in expiring]
+    expiring_set = {i["name"].lower() for i in expiring}
 
     user_id = tool_context.user_id or "default_user"
     profile = memory_pipeline.profile_store.get_profile_sync(user_id)
@@ -447,30 +459,43 @@ def suggest_zero_waste_recipes(
         else ""
     )
 
-    recipes = [
+    raw_recipes = [
         {
             "id": 1,
             "name": "Chicken & Tomato Skillet",
             "ingredients": ["Chicken Breast (2 lbs)", "Tomatoes (2 pcs)"],
-            "saves_expiring": [
-                n for n in expiring_names if n in ["Chicken Breast", "Tomatoes"]
-            ],
+            "target_foods": ["Chicken Breast", "Tomatoes"],
         },
         {
             "id": 2,
             "name": "Cheesy Omelette Delight",
             "ingredients": ["Eggs (4 pcs)", "Milk (1/2 carton)"],
-            "saves_expiring": [n for n in expiring_names if n in ["Eggs", "Milk"]],
+            "target_foods": ["Eggs", "Milk"],
         },
         {
             "id": 3,
             "name": "Vegetable Pasta Stir-Fry",
-            "ingredients": ["Spinach (1 bag)", "Tomatoes (2 pcs)", "Pasta (1 box)"],
-            "saves_expiring": [
-                n for n in expiring_names if n in ["Tomatoes", "Spinach"]
-            ],
+            "ingredients": ["Pasta (1 box)", "Spinach (1 bag)", "Tomatoes (2 pcs)"],
+            "target_foods": ["Spinach", "Tomatoes"],
         },
     ]
+
+    recipes = []
+    for r in raw_recipes:
+        saves = sorted(
+            [f for f in r["target_foods"] if f.lower() in expiring_set],
+            key=lambda x: x.lower(),
+        )
+        recipes.append(
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "ingredients": sorted(r["ingredients"], key=lambda x: x.lower()),
+                "saves_expiring": saves,
+            }
+        )
+
+    recipes = sorted(recipes, key=lambda r: r["name"].lower())
 
     lines = [f"🍳 Zero-Waste Recipe Options{diet_suffix}:"]
     for r in recipes:
@@ -566,11 +591,12 @@ def generate_custom_recipe(
 
     user_id = tool_context.user_id or "default_user"
     profile = memory_pipeline.profile_store.get_profile_sync(user_id)
-    combined_diets = list(
-        set([d for d in [dietary_preference] + profile.dietary_restrictions if d])
+    combined_diets = sorted(
+        list(set([d for d in [dietary_preference] + profile.dietary_restrictions if d])),
+        key=lambda x: x.lower(),
     )
 
-    item_names = [i["name"] for i in inventory]
+    item_names = sorted([i["name"] for i in inventory], key=lambda x: x.lower())
     pref_str = f" ({', '.join(combined_diets)})" if combined_diets else ""
     target_str = f" prioritizing {target_ingredients}" if target_ingredients else ""
 
