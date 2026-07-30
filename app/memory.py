@@ -38,6 +38,7 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 from app.privacy import sanitize_dict, sanitize_text
+from app.schemas import EpisodicLogSchema, UserProfileSchema
 
 logger = logging.getLogger(__name__)
 
@@ -46,22 +47,13 @@ DEFAULT_DB_PATH = os.path.join(
 )
 
 
-class UserProfile(BaseModel):
+class UserProfile(UserProfileSchema):
     """Structured memory store for user preferences and household metadata."""
 
-    user_id: str = "default_user"
-    dietary_restrictions: list[str] = Field(default_factory=list)
-    favorite_ingredients: list[str] = Field(default_factory=list)
-    disliked_ingredients: list[str] = Field(default_factory=list)
-    household_size: int = 1
-    sustainability_goals: list[str] = Field(
-        default_factory=lambda: ["zero-waste", "reduce-food-spoilage"]
-    )
-    favorite_recipes: list[str] = Field(default_factory=list)
-    custom_notes: dict[str, str] = Field(default_factory=dict)
+    pass
 
 
-class EpisodicLogEntry(BaseModel):
+class EpisodicLogEntry(EpisodicLogSchema):
     """Episodic memory entry capturing timestamped events and sustainability impact."""
 
     timestamp: str = Field(

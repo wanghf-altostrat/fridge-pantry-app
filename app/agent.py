@@ -29,13 +29,13 @@ from google.genai import types
 
 from app.memory import memory_pipeline
 from app.privacy import is_receipt_metadata_line, sanitize_text
+from app.schemas import FoodItemSchema
 
 
-class FoodItem(BaseModel):
-    name: str
-    quantity: str
-    category: str  # "fridge" or "pantry"
-    expiration_date: str  # YYYY-MM-DD
+class FoodItem(FoodItemSchema):
+    """Food item schema for agent tool inputs/outputs."""
+
+    pass
 
 
 def get_default_inventory() -> List[Dict[str, Any]]:

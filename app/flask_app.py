@@ -23,6 +23,7 @@ from google.genai import types
 from app.agent import app as adk_app
 from app.agent import get_default_inventory
 from app.privacy import filter_receipt_food_items, is_receipt_metadata_line, sanitize_text
+from app.schemas import get_all_app_schemas
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -36,6 +37,12 @@ flask_app = Flask(
 runner = InMemoryRunner(app=adk_app)
 current_session_id = None
 current_inventory = get_default_inventory()
+
+
+@flask_app.route("/api/schemas", methods=["GET"])
+def get_schemas():
+    """Returns standard JSON Schema specifications for all application models and payloads."""
+    return jsonify(get_all_app_schemas())
 
 
 async def get_or_create_session():
