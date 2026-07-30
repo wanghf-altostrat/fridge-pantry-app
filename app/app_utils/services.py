@@ -67,6 +67,17 @@ def get_artifact_service():
     return InMemoryArtifactService()
 
 
+@functools.cache
+def get_memory_service():
+    """Process-wide memory service using AsyncMemoryPipeline's ADK memory service."""
+    from app.memory import memory_pipeline
+
+    return memory_pipeline.adk_memory_service
+
+
+MEMORY_SERVICE_URI = "shared://memory"
+
 _registry = get_service_registry()
 _registry.register_session_service("shared", lambda uri, **kw: get_session_service())
 _registry.register_artifact_service("shared", lambda uri, **kw: get_artifact_service())
+_registry.register_memory_service("shared", lambda uri, **kw: get_memory_service())

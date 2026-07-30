@@ -15,11 +15,13 @@
 import asyncio
 import datetime
 import os
+
 from flask import Flask, jsonify, render_template, request
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 
-from app.agent import app as adk_app, get_default_inventory
+from app.agent import app as adk_app
+from app.agent import get_default_inventory
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -56,12 +58,16 @@ def sync_inventory_to_session():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
+
             async def _sync():
                 session = await runner.session_service.get_session(
-                    app_name="app", user_id="default_user", session_id=current_session_id
+                    app_name="app",
+                    user_id="default_user",
+                    session_id=current_session_id,
                 )
                 if session:
                     session.state["inventory"] = current_inventory
+
             loop.run_until_complete(_sync())
         finally:
             loop.close()
@@ -97,7 +103,7 @@ def index():
 def get_inventory():
     enriched = [enrich_item(item) for item in current_inventory]
     today = datetime.date.today().isoformat()
-    
+
     stats = {
         "total": len(enriched),
         "fridge": sum(1 for i in enriched if i.get("category") == "fridge"),
@@ -127,16 +133,25 @@ def add_item():
         "category": category if category in ["fridge", "pantry"] else "fridge",
         "expiration_date": expiration_date,
     }
-    
+
     # Replace if item already exists or append
-    existing_idx = next((i for i, item in enumerate(current_inventory) if item["name"].lower() == name.lower()), -1)
+    existing_idx = next(
+        (
+            i
+            for i, item in enumerate(current_inventory)
+            if item["name"].lower() == name.lower()
+        ),
+        -1,
+    )
     if existing_idx >= 0:
         current_inventory[existing_idx] = new_item
     else:
         current_inventory.append(new_item)
 
     sync_inventory_to_session()
-    return jsonify({"message": f"Added {name} to {category}", "item": enrich_item(new_item)})
+    return jsonify(
+        {"message": f"Added {name} to {category}", "item": enrich_item(new_item)}
+    )
 
 
 @flask_app.route("/api/inventory/<path:item_name>", methods=["DELETE"])
@@ -162,15 +177,35 @@ def parse_shopping_list_line(line: str) -> dict:
 
     # Determine location (fridge vs pantry) based on keywords
     pantry_keywords = [
-        "rice", "pasta", "noodle", "canned", "beans", "flour", "sugar",
-        "chip", "cracker", "oil", "sauce", "cereal", "oat", "spice", "nut",
-        "honey", "coffee", "tea", "bread", "pantry"
+        "rice",
+        "pasta",
+        "noodle",
+        "canned",
+        "beans",
+        "flour",
+        "sugar",
+        "chip",
+        "cracker",
+        "oil",
+        "sauce",
+        "cereal",
+        "oat",
+        "spice",
+        "nut",
+        "honey",
+        "coffee",
+        "tea",
+        "bread",
+        "pantry",
     ]
     is_pantry = any(kw in line_clean.lower() for kw in pantry_keywords)
     category = "pantry" if is_pantry else "fridge"
 
     # Determine default expiration
-    if any(kw in line_clean.lower() for kw in ["meat", "chicken", "beef", "pork", "fish", "salmon", "steak"]):
+    if any(
+        kw in line_clean.lower()
+        for kw in ["meat", "chicken", "beef", "pork", "fish", "salmon", "steak"]
+    ):
         exp_days = 3
     elif is_pantry:
         exp_days = 120
@@ -185,7 +220,19 @@ def parse_shopping_list_line(line: str) -> dict:
     name = line_clean
 
     if len(parts) >= 2 and parts[0].isdigit():
-        if len(parts) > 2 and parts[1].lower() in ["lbs", "kg", "pcs", "carton", "box", "bag", "can", "tub", "gal", "pack", "bottle"]:
+        if len(parts) > 2 and parts[1].lower() in [
+            "lbs",
+            "kg",
+            "pcs",
+            "carton",
+            "box",
+            "bag",
+            "can",
+            "tub",
+            "gal",
+            "pack",
+            "bottle",
+        ]:
             quantity = f"{parts[0]} {parts[1]}"
             name = " ".join(parts[2:])
         else:
@@ -213,7 +260,11 @@ def bulk_add_inventory():
     added_items = []
 
     if raw_list:
-        lines = [l for l in raw_list.replace(",", "\n").splitlines() if l.strip()]
+        lines = [
+            line_item
+            for line_item in raw_list.replace(",", "\n").splitlines()
+            if line_item.strip()
+        ]
         for line in lines:
             parsed = parse_shopping_list_line(line)
             if parsed:
@@ -228,9 +279,10 @@ def bulk_add_inventory():
             continue
         quantity = item.get("quantity", "1")
         category = item.get("category", "fridge")
-        expiration_date = item.get("expiration_date") or (
-            datetime.date.today() + datetime.timedelta(days=7)
-        ).isoformat()
+        expiration_date = (
+            item.get("expiration_date")
+            or (datetime.date.today() + datetime.timedelta(days=7)).isoformat()
+        )
 
         new_item = {
             "name": name,
@@ -240,8 +292,12 @@ def bulk_add_inventory():
         }
 
         existing_idx = next(
-            (i for i, existing in enumerate(current_inventory) if existing["name"].lower() == name.lower()),
-            -1
+            (
+                i
+                for i, existing in enumerate(current_inventory)
+                if existing["name"].lower() == name.lower()
+            ),
+            -1,
         )
         if existing_idx >= 0:
             current_inventory[existing_idx] = new_item
@@ -252,12 +308,14 @@ def bulk_add_inventory():
     sync_inventory_to_session()
 
     enriched = [enrich_item(item) for item in current_inventory]
-    return jsonify({
-        "message": f"Successfully updated contents with {len(added_items)} item(s) from shopping list!",
-        "added_count": len(added_items),
-        "added_items": [enrich_item(i) for i in added_items],
-        "inventory": enriched,
-    })
+    return jsonify(
+        {
+            "message": f"Successfully updated contents with {len(added_items)} item(s) from shopping list!",
+            "added_count": len(added_items),
+            "added_items": [enrich_item(i) for i in added_items],
+            "inventory": enriched,
+        }
+    )
 
 
 @flask_app.route("/api/inventory/reset", methods=["POST"])
@@ -265,10 +323,12 @@ def reset_inventory():
     global current_inventory
     current_inventory = get_default_inventory()
     sync_inventory_to_session()
-    return jsonify({
-        "message": "Inventory reset to default sample items",
-        "inventory": [enrich_item(item) for item in current_inventory],
-    })
+    return jsonify(
+        {
+            "message": "Inventory reset to default sample items",
+            "inventory": [enrich_item(item) for item in current_inventory],
+        }
+    )
 
 
 @flask_app.route("/api/inventory/consume", methods=["POST"])
@@ -280,19 +340,25 @@ def consume_item():
     if not item_name:
         return jsonify({"error": "Item name is required"}), 400
 
-    existing_item = next((i for i in current_inventory if i["name"].lower() == item_name.lower()), None)
+    existing_item = next(
+        (i for i in current_inventory if i["name"].lower() == item_name.lower()), None
+    )
     if not existing_item:
         return jsonify({"error": f"Item '{item_name}' not found in inventory"}), 404
 
-    current_inventory = [i for i in current_inventory if i["name"].lower() != item_name.lower()]
+    current_inventory = [
+        i for i in current_inventory if i["name"].lower() != item_name.lower()
+    ]
     sync_inventory_to_session()
 
     enriched = [enrich_item(item) for item in current_inventory]
-    return jsonify({
-        "message": f"Consumed '{existing_item['name']}' ({existing_item['quantity']})",
-        "consumed_item": existing_item,
-        "inventory": enriched,
-    })
+    return jsonify(
+        {
+            "message": f"Consumed '{existing_item['name']}' ({existing_item['quantity']})",
+            "consumed_item": existing_item,
+            "inventory": enriched,
+        }
+    )
 
 
 @flask_app.route("/api/inventory/discard-expired", methods=["POST"])
@@ -301,32 +367,38 @@ def discard_expired_items():
     today_str = datetime.date.today().isoformat()
 
     expired_items = [
-        item for item in current_inventory
+        item
+        for item in current_inventory
         if item.get("expiration_date", "9999-12-31") <= today_str
     ]
 
     if not expired_items:
-        return jsonify({
-            "message": "No expired food items found in inventory!",
-            "discarded_count": 0,
-            "discarded_items": [],
-            "inventory": [enrich_item(i) for i in current_inventory],
-        })
+        return jsonify(
+            {
+                "message": "No expired food items found in inventory!",
+                "discarded_count": 0,
+                "discarded_items": [],
+                "inventory": [enrich_item(i) for i in current_inventory],
+            }
+        )
 
     current_inventory = [
-        item for item in current_inventory
+        item
+        for item in current_inventory
         if item.get("expiration_date", "9999-12-31") > today_str
     ]
 
     sync_inventory_to_session()
 
     enriched = [enrich_item(item) for item in current_inventory]
-    return jsonify({
-        "message": f"Successfully discarded {len(expired_items)} expired food item(s)!",
-        "discarded_count": len(expired_items),
-        "discarded_items": [enrich_item(i) for i in expired_items],
-        "inventory": enriched,
-    })
+    return jsonify(
+        {
+            "message": f"Successfully discarded {len(expired_items)} expired food item(s)!",
+            "discarded_count": len(expired_items),
+            "discarded_items": [enrich_item(i) for i in expired_items],
+            "inventory": enriched,
+        }
+    )
 
 
 @flask_app.route("/api/agent/chat", methods=["POST"])
@@ -380,11 +452,13 @@ def agent_chat():
         loop.close()
 
     enriched = [enrich_item(item) for item in current_inventory]
-    return jsonify({
-        "messages": messages,
-        "hitl": hitl,
-        "inventory": enriched,
-    })
+    return jsonify(
+        {
+            "messages": messages,
+            "hitl": hitl,
+            "inventory": enriched,
+        }
+    )
 
 
 @flask_app.route("/api/agent/cook", methods=["POST"])
@@ -396,10 +470,18 @@ def cook_recipe():
     consumed = []
     recipe_name = ""
 
-    if "1" in recipe_choice or "skillet" in recipe_choice.lower() or "chicken" in recipe_choice.lower():
+    if (
+        "1" in recipe_choice
+        or "skillet" in recipe_choice.lower()
+        or "chicken" in recipe_choice.lower()
+    ):
         recipe_name = "Chicken & Tomato Skillet"
         consumed = ["Chicken Breast", "Tomatoes"]
-    elif "2" in recipe_choice or "omelette" in recipe_choice.lower() or "egg" in recipe_choice.lower():
+    elif (
+        "2" in recipe_choice
+        or "omelette" in recipe_choice.lower()
+        or "egg" in recipe_choice.lower()
+    ):
         recipe_name = "Cheesy Omelette Delight"
         consumed = ["Eggs", "Milk"]
     elif "3" in recipe_choice or "pasta" in recipe_choice.lower():
@@ -417,12 +499,14 @@ def cook_recipe():
     sync_inventory_to_session()
 
     enriched = [enrich_item(item) for item in current_inventory]
-    return jsonify({
-        "message": f"Successfully cooked {recipe_name}! Deducted: {', '.join(consumed)}",
-        "recipe_name": recipe_name,
-        "consumed": consumed,
-        "inventory": enriched,
-    })
+    return jsonify(
+        {
+            "message": f"Successfully cooked {recipe_name}! Deducted: {', '.join(consumed)}",
+            "recipe_name": recipe_name,
+            "consumed": consumed,
+            "inventory": enriched,
+        }
+    )
 
 
 @flask_app.route("/api/recipes", methods=["GET"])
@@ -443,7 +527,9 @@ def get_recipes():
             "ingredients": ["Chicken Breast", "Tomatoes"],
             "category": "High Protein",
             "cook_time": "20 mins",
-            "expiring_used": [i for i in expiring_items if i in ["Chicken Breast", "Tomatoes"]],
+            "expiring_used": [
+                i for i in expiring_items if i in ["Chicken Breast", "Tomatoes"]
+            ],
         },
         {
             "id": "2",
@@ -459,7 +545,9 @@ def get_recipes():
             "ingredients": ["Spinach", "Tomatoes", "Pasta"],
             "category": "Vegetarian",
             "cook_time": "15 mins",
-            "expiring_used": [i for i in expiring_items if i in ["Tomatoes", "Spinach"]],
+            "expiring_used": [
+                i for i in expiring_items if i in ["Tomatoes", "Spinach"]
+            ],
         },
     ]
 
