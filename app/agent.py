@@ -99,6 +99,7 @@ def get_default_inventory() -> List[Dict[str, Any]]:
 @node(name="inventory_manager")
 def inventory_manager(ctx: Context, node_input: Any) -> Event:
     """Node that processes grocery trips, manages inventory, and flags items expiring within 7 days."""
+    logger.info("INTENT [WORKFLOW INVENTORY]: Evaluating current inventory status and processing grocery updates.")
     today = datetime.date.today()
     cutoff_date = today + datetime.timedelta(days=7)
 
@@ -183,6 +184,7 @@ def inventory_manager(ctx: Context, node_input: Any) -> Event:
 @node(name="recipe_agent")
 async def recipe_agent(ctx: Context, node_input: dict):
     """Recipe recommendation agent node with Human-In-The-Loop pause (RequestInput)."""
+    logger.info("INTENT [WORKFLOW RECIPE]: Evaluating recipe selection and ingredient deductions.")
     inventory = node_input.get("inventory", ctx.state.get("inventory", []))
     expiring_soon = node_input.get("expiring_soon", [])
     user_input = node_input.get("user_input", ctx.state.get("last_user_input", ""))
@@ -303,6 +305,10 @@ def add_food_item(
         category: Storage location, either 'fridge' or 'pantry'.
         expiration_date: Date formatted as YYYY-MM-DD.
     """
+    logger.info(
+        f"INTENT [TOOL ADD]: Preparing to add/update food item '{name}' "
+        f"({quantity}, category '{category}', exp '{expiration_date}')."
+    )
     sanitized_name = sanitize_text(name.title())
     if not sanitized_name or is_receipt_metadata_line(name) or is_receipt_metadata_line(sanitized_name):
         return "Cannot add item: Input contains sensitive personal data or receipt metadata rather than a valid food item."
@@ -371,6 +377,7 @@ def consume_food_item(
     Args:
         name: Name of the food item to consume (e.g. 'Milk', 'Chicken Breast').
     """
+    logger.info(f"INTENT [TOOL CONSUME]: Preparing to consume food item '{name}'.")
     inventory = tool_context.state.get("inventory", [])
     initial_len = len(inventory)
     updated_inventory = sorted(
@@ -400,6 +407,7 @@ def discard_expired_items(
     tool_context: ToolContext,
 ) -> str:
     """Discards all expired food items (items where expiration_date <= today) from inventory."""
+    logger.info("INTENT [TOOL DISCARD EXPIRED]: Preparing to scan and discard all expired food items.")
     today_str = datetime.date.today().isoformat()
     inventory = tool_context.state.get("inventory", [])
     expired = sorted(

@@ -185,6 +185,7 @@ class StructuredProfileStore:
         custom_notes: dict[str, str] | None = None,
     ) -> UserProfile:
         """Asynchronously update structured user profile attributes in SQLite database."""
+        logger.info(f"INTENT [PROFILE STORE]: Preparing to update user profile for '{user_id}'.")
         async with self._lock:
             profile = self.get_profile_sync(user_id)
             if dietary_restrictions is not None:
@@ -252,6 +253,7 @@ class EpisodicActivityLogger:
         details: dict[str, Any],
         impact_summary: str = "",
     ) -> EpisodicLogEntry:
+        logger.info(f"INTENT [EPISODIC LOGGER]: Preparing to log '{event_type}' event for user '{user_id}'.")
         sanitized_details = sanitize_dict(details or {})
         sanitized_summary = sanitize_text(impact_summary or "")
 

@@ -135,6 +135,8 @@ def add_item():
     category = data.get("category", "fridge").lower()
     expiration_date = data.get("expiration_date", "")
 
+    logger.info(f"INTENT [API ADD]: Received request to add/update item '{name}' ({quantity}, {category}, exp {expiration_date}).")
+
     if not name or not expiration_date:
         return jsonify({"error": "Item name and expiration date are required"}), 400
 
@@ -173,6 +175,7 @@ def add_item():
 @flask_app.route("/api/inventory/<path:item_name>", methods=["DELETE"])
 def delete_item(item_name):
     global current_inventory
+    logger.info(f"INTENT [API DELETE]: Received request to delete item '{item_name}'.")
     initial_len = len(current_inventory)
     current_inventory = [
         item for item in current_inventory if item["name"].lower() != item_name.lower()
@@ -276,6 +279,7 @@ def parse_shopping_list_line(line: str) -> dict | None:
 @flask_app.route("/api/inventory/bulk", methods=["POST"])
 def bulk_add_inventory():
     global current_inventory
+    logger.info("INTENT [API BULK ADD]: Received request to bulk import items from shopping list or receipt.")
     data = request.json or {}
     raw_list = data.get("shopping_list", "")
     items_array = data.get("items", [])
@@ -346,6 +350,7 @@ def bulk_add_inventory():
 @flask_app.route("/api/inventory/reset", methods=["POST"])
 def reset_inventory():
     global current_inventory
+    logger.info("INTENT [API RESET]: Received request to reset inventory to sample default items.")
     current_inventory = get_default_inventory()
     sync_inventory_to_session()
     logger.info(f"FLASK API [RESET INVENTORY]: Reset inventory to default sample ({len(current_inventory)} items).")
@@ -362,6 +367,8 @@ def consume_item():
     global current_inventory
     data = request.json or {}
     item_name = data.get("name", "").strip()
+
+    logger.info(f"INTENT [API CONSUME]: Received request to consume item '{item_name}'.")
 
     if not item_name:
         return jsonify({"error": "Item name is required"}), 400
@@ -396,6 +403,7 @@ def consume_item():
 @flask_app.route("/api/inventory/discard-expired", methods=["POST"])
 def discard_expired_items():
     global current_inventory
+    logger.info("INTENT [API DISCARD EXPIRED]: Received request to discard all expired food items.")
     today_str = datetime.date.today().isoformat()
 
     expired_items = sorted(
@@ -449,6 +457,8 @@ def agent_chat():
     global current_inventory
     data = request.json or {}
     user_text = sanitize_text(data.get("message", "").strip())
+
+    logger.info(f"INTENT [API CHAT]: Processing user agent chat request: '{user_text[:60]}...'.")
 
     if not user_text:
         return jsonify({"error": "Message is required"}), 400
@@ -509,6 +519,8 @@ def cook_recipe():
     global current_inventory
     data = request.json or {}
     recipe_choice = data.get("recipe", "1").strip()
+
+    logger.info(f"INTENT [API COOK]: Received request to cook recipe '{recipe_choice}'.")
 
     consumed = []
     recipe_name = ""
