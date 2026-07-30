@@ -407,19 +407,107 @@ def suggest_zero_waste_recipes(
     return "\n".join(lines)
 
 
+def get_storage_advice(
+    tool_context: ToolContext,
+    item_name: str,
+) -> str:
+    """Provides food storage, preservation, and shelf-life extension advice for an ingredient.
+
+    Args:
+        item_name: Name of the food item (e.g. 'Avocado', 'Spinach', 'Berries', 'Milk').
+    """
+    item_lower = item_name.lower()
+    advice_db = {
+        "avocado": "Store unripe avocados on the counter. Once ripe, refrigerate for up to 5 days. To freeze, mash with lemon juice.",
+        "spinach": "Store in fridge wrapped in paper towels to absorb moisture. Freeze cooked or blanched spinach in airtight bags.",
+        "berries": "Wash in diluted vinegar water before storing in paper-towel-lined containers in fridge. Do not seal tightly.",
+        "bread": "Keep room-temp for 3-4 days. Freeze sliced bread for up to 3 months rather than refrigerating (which dries it out).",
+        "milk": "Store on interior fridge shelves rather than door door racks to maintain cool temp.",
+        "tomatoes": "Store on counter stem-side down at room temp. Refrigerate only when fully ripe or cut.",
+    }
+    for key, advice in advice_db.items():
+        if key in item_lower:
+            return f"Storage Advice for {item_name.title()}: {advice}"
+    return (
+        f"Storage Advice for {item_name.title()}: Store in a cool, dry place if shelf-stable, "
+        f"or refrigerate at <= 40°F (4°C) in an airtight container. Freeze if planning to store long-term."
+    )
+
+
+def estimate_expiration(
+    tool_context: ToolContext,
+    item_name: str,
+    category: str = "fridge",
+) -> str:
+    """Estimates standard shelf-life and recommended expiration date for unpackaged fresh food.
+
+    Args:
+        item_name: Name of the fresh food or leftover (e.g. 'Cooked Chicken', 'Fresh Salmon').
+        category: Storage location, either 'fridge' or 'pantry'.
+    """
+    today = datetime.date.today()
+    item_lower = item_name.lower()
+    
+    if "cooked" in item_lower or "leftover" in item_lower:
+        days = 4
+    elif "fish" in item_lower or "seafood" in item_lower or "salmon" in item_lower:
+        days = 2
+    elif "raw" in item_lower or "poultry" in item_lower or "chicken" in item_lower or "beef" in item_lower:
+        days = 3
+    elif "berry" in item_lower or "berries" in item_lower or "herbs" in item_lower:
+        days = 5
+    elif category.lower() == "pantry":
+        days = 90
+    else:
+        days = 7
+
+    est_date = (today + datetime.timedelta(days=days)).isoformat()
+    return f"Estimated expiration date for '{item_name}' stored in {category}: {est_date} ({days} days from today)."
+
+
+def generate_custom_recipe(
+    tool_context: ToolContext,
+    dietary_preference: str = "",
+    target_ingredients: str = "",
+) -> str:
+    """Generates custom zero-waste recipes using ingredients available in inventory.
+
+    Args:
+        dietary_preference: Optional diet filter (e.g. 'vegetarian', 'gluten-free', 'keto').
+        target_ingredients: Specific ingredients the user wants to prioritize using.
+    """
+    inventory = tool_context.state.get("inventory", [])
+    if not inventory:
+        inventory = get_default_inventory()
+    
+    item_names = [i["name"] for i in inventory]
+    pref_str = f" ({dietary_preference})" if dietary_preference else ""
+    target_str = f" prioritizing {target_ingredients}" if target_ingredients else ""
+    
+    return (
+        f"🍳 Custom Zero-Waste Recipe{pref_str}{target_str}:\n"
+        f"- Main Dish: Pantry & Fridge Fusion Bowl\n"
+        f"- Ingredients Used: {', '.join(item_names[:4])}\n"
+        f"- Instructions: Sauté available proteins and veggies, combine with grains, and season to taste."
+    )
+
+
 pantry_llm_agent = LlmAgent(
     name="pantry_llm_agent",
-    description="LLM Agent equipped with tools for inventory management, food tracking, and recipe creation.",
+    description="LLM Agent equipped with tools for inventory management, food tracking, storage advice, and custom recipe creation.",
     model="gemini-2.5-flash",
     instruction="""You are an intelligent Fridge & Pantry Assistant.
-    You have tools to check inventory status, add food items, consume used ingredients, discard expired items, and suggest zero-waste recipes.
-    When asked about inventory, logging groceries, consuming food, throwing out expired items, or recipe ideas, invoke the appropriate tool.""",
+    You have tools to check inventory status, add food items, consume used ingredients, discard expired items, suggest zero-waste recipes, provide food storage advice, estimate expiration dates, and generate custom recipes.
+    When asked about inventory, logging groceries, consuming food, throwing out expired items, storage tips, or recipe ideas, invoke the appropriate tool.""",
     tools=[
         add_food_item,
         consume_food_item,
         discard_expired_items,
         check_inventory,
         suggest_zero_waste_recipes,
+        get_storage_advice,
+        estimate_expiration,
+        generate_custom_recipe,
     ],
 )
 
