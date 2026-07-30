@@ -234,6 +234,7 @@ class StructuredProfileStore:
 
             with self.db_manager.get_connection() as conn:
                 self._save_profile_sync(conn, profile)
+            logger.info(f"PROFILE STORE [UPDATE]: Saved profile update for user '{user_id}'.")
             return profile
 
 
@@ -275,6 +276,7 @@ class EpisodicActivityLogger:
                 ),
             )
             conn.commit()
+        logger.info(f"EPISODIC LOGGER [EVENT]: Persisted '{event_type}' event for user '{user_id}': {entry.impact_summary or entry.details}")
         return entry
 
     async def log_event_async(

@@ -14,6 +14,7 @@
 
 import asyncio
 import datetime
+import logging
 import os
 
 from flask import Flask, jsonify, render_template, request
@@ -24,6 +25,8 @@ from app.agent import app as adk_app
 from app.agent import get_default_inventory
 from app.privacy import filter_receipt_food_items, is_receipt_metadata_line, sanitize_text
 from app.schemas import get_all_app_schemas
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -158,6 +161,10 @@ def add_item():
     current_inventory = sorted(current_inventory, key=lambda x: x["name"].lower())
 
     sync_inventory_to_session()
+    logger.info(
+        f"FLASK API [ADD ITEM]: Added/updated '{name}' ({quantity}) to {category}, "
+        f"exp {expiration_date}. Total inventory count: {len(current_inventory)}"
+    )
     return jsonify(
         {"message": f"Added {name} to {category}", "item": enrich_item(new_item)}
     )
@@ -174,6 +181,9 @@ def delete_item(item_name):
         return jsonify({"error": f"Item '{item_name}' not found"}), 404
 
     sync_inventory_to_session()
+    logger.info(
+        f"FLASK API [DELETE ITEM]: Deleted '{item_name}'. Remaining inventory count: {len(current_inventory)}"
+    )
     return jsonify({"message": f"Removed '{item_name}' from inventory"})
 
 
@@ -317,6 +327,11 @@ def bulk_add_inventory():
     current_inventory = sorted(current_inventory, key=lambda x: x["name"].lower())
     sync_inventory_to_session()
 
+    logger.info(
+        f"FLASK API [BULK ADD]: Imported {len(added_items)} food item(s) from shopping list/receipt. "
+        f"Total inventory count: {len(current_inventory)}"
+    )
+
     enriched = [enrich_item(item) for item in current_inventory]
     return jsonify(
         {
@@ -333,6 +348,7 @@ def reset_inventory():
     global current_inventory
     current_inventory = get_default_inventory()
     sync_inventory_to_session()
+    logger.info(f"FLASK API [RESET INVENTORY]: Reset inventory to default sample ({len(current_inventory)} items).")
     return jsonify(
         {
             "message": "Inventory reset to default sample items",
@@ -361,6 +377,11 @@ def consume_item():
         key=lambda x: x["name"].lower(),
     )
     sync_inventory_to_session()
+
+    logger.info(
+        f"FLASK API [CONSUME ITEM]: Consumed '{existing_item['name']}'. "
+        f"Remaining inventory count: {len(current_inventory)}"
+    )
 
     enriched = [enrich_item(item) for item in current_inventory]
     return jsonify(
@@ -406,6 +427,11 @@ def discard_expired_items():
     )
 
     sync_inventory_to_session()
+
+    logger.info(
+        f"FLASK API [DISCARD EXPIRED]: Discarded {len(expired_items)} expired item(s). "
+        f"Remaining inventory count: {len(current_inventory)}"
+    )
 
     enriched = [enrich_item(item) for item in current_inventory]
     return jsonify(
@@ -516,6 +542,11 @@ def cook_recipe():
     )
 
     sync_inventory_to_session()
+
+    logger.info(
+        f"FLASK API [COOK RECIPE]: Cooked recipe '{recipe_name}', deducted: {consumed}. "
+        f"Remaining inventory count: {len(current_inventory)}"
+    )
 
     enriched = [enrich_item(item) for item in current_inventory]
     return jsonify(

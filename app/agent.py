@@ -15,6 +15,7 @@
 
 import asyncio
 import datetime
+import logging
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
@@ -30,6 +31,8 @@ from google.genai import types
 from app.memory import memory_pipeline
 from app.privacy import is_receipt_metadata_line, sanitize_text
 from app.schemas import FoodItemSchema
+
+logger = logging.getLogger(__name__)
 
 
 class FoodItem(FoodItemSchema):
@@ -156,6 +159,8 @@ def inventory_manager(ctx: Context, node_input: Any) -> Event:
                 f"✅ {item['name']} ({item['quantity']}) in {item['category']} - Expires in {days_left} days ({item['expiration_date']})"
             )
 
+    logger.info(f"INVENTORY CHECK [WORKFLOW]: Evaluated {len(current_inventory)} item(s) in state, flagged {len(expiring_soon)} expiring item(s).")
+
     summary_text = (
         f"📋 **Fridge & Pantry Inventory Status (As of {today.isoformat()})**\n\n"
         + "\n".join(all_items_summary)
@@ -244,6 +249,11 @@ async def recipe_agent(ctx: Context, node_input: dict):
     )
     ctx.state["inventory"] = remaining_inventory
 
+    logger.info(
+        f"INVENTORY MUTATION [WORKFLOW COOK]: Cooked recipe '{recipe_name}', "
+        f"deducted ingredients: {consumed_items}. Remaining items count: {len(remaining_inventory)}"
+    )
+
     # Asynchronously record recipe acceptance in episodic activity logger & profile memory
     memory_pipeline.enqueue_update_async(
         job_type="log_event",
@@ -325,6 +335,11 @@ def add_food_item(
     inventory = sorted(inventory, key=lambda x: x["name"].lower())
     tool_context.state["inventory"] = inventory
 
+    logger.info(
+        f"INVENTORY MUTATION [TOOL ADD]: Added/updated '{sanitized_name}' ({sanitized_qty}) "
+        f"in {sanitized_cat}, exp {expiration_date}. Total inventory count: {len(inventory)}"
+    )
+
     user_id = tool_context.user_id or "default_user"
     memory_pipeline.enqueue_update_async(
         job_type="log_event",
@@ -366,6 +381,10 @@ def consume_food_item(
 
     user_id = tool_context.user_id or "default_user"
     if len(updated_inventory) < initial_len:
+        logger.info(
+            f"INVENTORY MUTATION [TOOL CONSUME]: Consumed '{name}'. "
+            f"Remaining inventory count: {len(updated_inventory)}"
+        )
         memory_pipeline.enqueue_update_async(
             job_type="log_event",
             user_id=user_id,
@@ -404,6 +423,10 @@ def discard_expired_items(
     user_id = tool_context.user_id or "default_user"
     if expired:
         names = ", ".join([i["name"] for i in expired])
+        logger.info(
+            f"INVENTORY MUTATION [TOOL DISCARD EXPIRED]: Discarded {len(expired)} expired item(s): {names}. "
+            f"Remaining inventory count: {len(remaining)}"
+        )
         memory_pipeline.enqueue_update_async(
             job_type="log_event",
             user_id=user_id,

@@ -14,8 +14,11 @@
 
 """Privacy and personal data protection guardrails for Fridge & Pantry Agent."""
 
+import logging
 import re
 from typing import Any, Dict, List
+
+logger = logging.getLogger(__name__)
 
 # Regex patterns for sensitive personal data
 CARD_REGEX = re.compile(r"\b(?:\d[ -]*?){13,16}\b")
@@ -61,6 +64,8 @@ def sanitize_text(text: str) -> str:
     sanitized = EMAIL_REGEX.sub("[REDACTED EMAIL]", sanitized)
     sanitized = PHONE_REGEX.sub("[REDACTED PHONE]", sanitized)
     sanitized = ADDRESS_REGEX.sub("[REDACTED ADDRESS]", sanitized)
+    if sanitized != text:
+        logger.info("PRIVACY GUARDRAIL [REDACTION]: Redacted sensitive personal/payment details from text.")
     return sanitized.strip()
 
 
@@ -82,13 +87,16 @@ def filter_receipt_food_items(text: str) -> List[str]:
         return []
     lines = text.replace(",", "\n").splitlines()
     food_lines = []
+    filtered_count = 0
     for line in lines:
         line_clean = line.strip()
         if not line_clean:
             continue
         if is_receipt_metadata_line(line_clean):
+            filtered_count += 1
             continue
         food_lines.append(line_clean)
+    logger.info(f"PRIVACY GUARDRAIL [RECEIPT FILTER]: Extracted {len(food_lines)} food line(s) and filtered out {filtered_count} non-food metadata line(s).")
     return food_lines
 
 
