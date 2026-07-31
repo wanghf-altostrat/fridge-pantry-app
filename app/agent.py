@@ -29,6 +29,13 @@ from google.adk.agents import LlmAgent
 from google.genai import types
 
 from app.memory import memory_pipeline
+from app.model_router import (
+    FAST_MODEL,
+    REASONING_MODEL,
+    ModelRouter,
+    ModelTier,
+    get_model_for_task,
+)
 from app.privacy import is_receipt_metadata_line, sanitize_text
 from app.schemas import FoodItemSchema
 
@@ -116,6 +123,14 @@ def inventory_manager(ctx: Context, node_input: Any) -> Event:
     elif isinstance(node_input, str):
         input_text = node_input
 
+    # Strategic Model Routing evaluation
+    routing = ModelRouter.route_input(input_text, context_state=ctx.state)
+    ctx.state["model_routing"] = routing.model_dump()
+    logger.info(
+        f"STRATEGIC MODEL ROUTE [INVENTORY NODE]: Routed to '{routing.selected_model}' "
+        f"({routing.tier.value} tier, complexity score {routing.complexity_score}). Reason: {routing.reason}"
+    )
+
     # Process grocery trip additions
     if (
         "bought" in input_text.lower()
@@ -191,6 +206,14 @@ async def recipe_agent(ctx: Context, node_input: dict):
     user_id = ctx.user_id or "default_user"
 
     expiring_names = [item["name"] for item in expiring_soon]
+
+    # Strategic Model Routing evaluation for recipe generation / planning
+    recipe_routing = ModelRouter.route_input(user_input or "suggest recipes", context_state=ctx.state)
+    ctx.state["recipe_model_routing"] = recipe_routing.model_dump()
+    logger.info(
+        f"STRATEGIC MODEL ROUTE [RECIPE NODE]: Selected '{recipe_routing.selected_model}' "
+        f"({recipe_routing.tier.value} tier) for recipe task score {recipe_routing.complexity_score}."
+    )
 
     user_choice = None
     if ctx.resume_inputs and "recipe_approval" in ctx.resume_inputs:
@@ -630,6 +653,15 @@ def generate_custom_recipe(
     if not inventory:
         inventory = get_default_inventory()
 
+    # Strategic Model Routing for custom recipe generation
+    query_hint = f"custom recipe {dietary_preference} {target_ingredients}"
+    routing = ModelRouter.route_input(query_hint, context_state=tool_context.state)
+    tool_context.state["custom_recipe_routing"] = routing.model_dump()
+    logger.info(
+        f"STRATEGIC MODEL ROUTE [CUSTOM RECIPE TOOL]: Executing with model '{routing.selected_model}' "
+        f"({routing.tier.value} tier, complexity score {routing.complexity_score})."
+    )
+
     user_id = tool_context.user_id or "default_user"
     profile = memory_pipeline.profile_store.get_profile_sync(user_id)
     combined_diets = sorted(
@@ -791,9 +823,9 @@ async def get_activity_history(
 
 pantry_llm_agent = LlmAgent(
     name="pantry_llm_agent",
-    description="LLM Agent equipped with tools for inventory management, food tracking, storage advice, user preference profile tracking, activity logs, and custom recipe creation.",
-    model="gemini-2.5-flash",
-    instruction="""You are an intelligent Fridge & Pantry Assistant.
+    description="Fast-tier LLM Agent for fast inventory management, food tracking, storage advice, and routine pantry operations.",
+    model=FAST_MODEL,
+    instruction="""You are an intelligent Fridge & Pantry Assistant (Fast Tier).
     You have tools to check inventory status, add food items, consume used ingredients, discard expired items, suggest zero-waste recipes, provide food storage advice, estimate expiration dates, generate custom recipes, update user profiles & dietary preferences, retrieve user profiles, query past conversation memory, and check activity history.
     When asked about inventory, logging groceries, consuming food, throwing out expired items, storage tips, dietary preferences, past activities, or recipe ideas, invoke the appropriate tool.
 
@@ -813,6 +845,27 @@ pantry_llm_agent = LlmAgent(
         query_user_memory,
         update_user_profile,
         get_user_profile,
+        get_activity_history,
+    ],
+)
+
+
+recipe_reasoning_agent = LlmAgent(
+    name="recipe_reasoning_agent",
+    description="High-reasoning LLM Agent specialized in complex zero-waste meal planning, custom recipe synthesis, and multi-ingredient dietary optimization.",
+    model=REASONING_MODEL,
+    instruction="""You are an expert Culinary & Dietary AI Assistant (Reasoning Tier).
+    You specialize in complex zero-waste meal planning, custom recipe synthesis with multi-ingredient substitutions, and detailed dietary restriction compliance.
+    Use your tools to query user preferences, generate custom recipes, and suggest zero-waste meal plans tailored to expiring ingredients.
+
+    STRICT PRIVACY GUARDRAILS:
+    - Never process or store sensitive personal data.""",
+    tools=[
+        suggest_zero_waste_recipes,
+        generate_custom_recipe,
+        get_user_profile,
+        update_user_profile,
+        query_user_memory,
         get_activity_history,
     ],
 )
